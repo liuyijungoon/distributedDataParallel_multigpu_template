@@ -23,7 +23,8 @@ from data.dataset import Dataset,Dataset_trainer16
 import pdb
 
 ## how to run
-## CUDA_VISIBLE_DEVICES=6,7 python multi_gpu_main.py --multiprocessing-distributed 
+## CUDA_VISIBLE_DEVICES=6,7 python multi_gpu_main.py --multiprocessing-distributed
+# read blog first: https://blog.csdn.net/m0_37833297/article/details/121875395 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
@@ -149,7 +150,10 @@ def main_worker(gpu, ngpus_per_node, args):
             # When using a single GPU per process and per
             # DistributedDataParallel, we need to divide the batch size
             # ourselves based on the total number of GPUs we have
-            args.batch_size = int(args.batch_size / ngpus_per_node)
+            if args.rank == 0:
+                args.batch_size = 0
+            else:
+                args.batch_size = int(args.batch_size / ngpus_per_node)
             args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         else:
@@ -237,17 +241,24 @@ def main_worker(gpu, ngpus_per_node, args):
         train(train_loader, model, criterion, optimizer, epoch, args)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, args)
+        validate(val_loader, model, criterion, args)
 
+        # if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+        #         and args.rank % ngpus_per_node == 0):
+        #     save_checkpoint({
+        #         'epoch': epoch + 1,
+        #         'state_dict': model.state_dict(),
+        #         'optimizer' : optimizer.state_dict(),
+        #     })
+        #begin#################################################################
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+                and args.rank % ngpus_per_node == 1):
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
             })
-
-
+##################################################################
 def train(train_loader, model, criterion, optimizer, epoch, args):
     model.train()
 
@@ -264,7 +275,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         output = model(images)
         loss = criterion(output, target)
         #begin##################################################################################
-        if args.rank ==0:#output at the first gpu
+        if args.rank ==1:#output at the first gpu
             print(loss)
         ###############################################################################
 
@@ -291,11 +302,12 @@ def validate(val_loader, model, criterion, args):
             output = model(images)
             loss = criterion(output, target)
 
+#begin##################################################################
+            if args.rank == 1:
+                print(loss)
+###################################################################
 
-    return loss
-
-
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+def save_checkpoint(state, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
 
 
